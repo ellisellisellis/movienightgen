@@ -132,6 +132,16 @@
             background-color: #ffe885; 
         }
 
+        .btn-secondary {
+            background-color: #112233;
+            color: #ffdb58;
+            border: 2px solid #ffdb58;
+        }
+
+        .btn-secondary:hover {
+            background-color: #1a334e;
+        }
+
         input { 
             width: 100%; 
             background: #2e1a1a; 
@@ -146,12 +156,23 @@
             margin-bottom: 15px; 
             border: 1px solid #5a2222;
         }
+
+        .share-toast {
+            display: none;
+            background: #ffdb58;
+            color: #1a0f0f;
+            padding: 8px;
+            border-radius: 6px;
+            font-weight: bold;
+            margin-top: 10px;
+            font-size: 0.85rem;
+        }
     </style>
 </head>
 <body>
 
     <div class="poster-container">
-        <div class="marquee">HOME CINEMA<br>NOW SHOWING</div>
+        <div class="marquee" id="marquee-header">HOME CINEMA<br>NOW SHOWING</div>
 
         <div class="settings" id="settings-box">
             <p style="margin: 0 0 8px 0; font-size: 0.85rem;">Enter your MDBlist API Key:</p>
@@ -164,18 +185,33 @@
             <p>Connecting to your live watchlist...</p>
         </div>
 
-        <button onclick="pickRandomMovies()" id="pick-btn" style="display:none; margin-top: 20px;">🎲 Pick 3 New Feature Films</button>
+        <div id="controls-area" style="margin-top: 20px;">
+            <button onclick="pickRandomMovies()" id="pick-btn" style="display:none;">🎲 Pick 3 New Feature Films</button>
+            <button onclick="shareCurrentList()" id="share-btn" class="btn-secondary" style="display:none; margin-top: 10px;">🔗 Share Static List</button>
+        </div>
+
+        <div id="share-toast" class="share-toast">Copied link to clipboard!</div>
     </div>
 
     <script>
         let cachedWatchlist = [];
+        let currentSelection = [];
 
         window.onload = function() {
-            const savedKey = localStorage.getItem("mdblist_api_key");
-            if (savedKey) {
-                document.getElementById("apiKeyInput").value = savedKey;
-                document.getElementById("settings-box").style.display = "none";
-                fetchWatchlist(savedKey);
+            const urlParams = new URLSearchParams(window.location.search);
+            const sharedData = urlParams.get('list');
+
+            if (sharedData) {
+                renderSharedList(sharedData);
+            } else {
+                const savedKey = localStorage.getItem("mdblist_api_key");
+                if (savedKey) {
+                    document.getElementById("apiKeyInput").value = savedKey;
+                    document.getElementById("settings-box").style.display = "none";
+                    fetchWatchlist(savedKey);
+                } else {
+                    document.getElementById("movie-list").innerHTML = "<p>Please enter your API key to get started.</p>";
+                }
             }
         };
 
@@ -193,7 +229,6 @@
             container.innerHTML = "<p>Connecting to MDBlist API...</p>";
 
             try {
-                // Restored &append_to_response=poster to load poster URLs correctly
                 const response = await fetch(`https://api.mdblist.com/watchlist/items?apikey=${apiKey}&append_to_response=poster`);
                 if (!response.ok) throw new Error("Failed to fetch watchlist. Check your API key.");
                 
@@ -220,17 +255,30 @@
             if (cachedWatchlist.length === 0) return;
 
             let shuffled = [...cachedWatchlist].sort(() => 0.5 - Math.random());
-            let selected = shuffled.slice(0, 3);
+            currentSelection = shuffled.slice(0, 3);
 
+            renderMovies(currentSelection);
+            document.getElementById("share-btn").style.display = "inline-block";
+        }
+
+        function renderMovies(moviesList) {
             let container = document.getElementById("movie-list");
             container.innerHTML = '<div class="movies-grid"></div>';
             let grid = container.querySelector('.movies-grid');
 
-            selected.forEach((movie, index) => {
-                let releaseYear = movie.release_year || (movie.release_date ? movie.release_date.split("-")[0] : "N/A");
-                let synopsis = movie.description || movie.overview || "A captivating feature film handpicked from your live watchlist.";
-                let posterUrl = movie.poster || movie.poster_path || "https://via.placeholder.com/200x300?text=No+Poster";
-                let rating = movie.score ? `Score: ${movie.score}%` : (movie.imdb_rating ? `IMDb: ${movie.imdb_rating}` : "");
+            moviesList.forEach((movie, index) => {
+                let releaseYear = movie.year || movie.release_year || (movie.release_date ? movie.release_date.split("-")[0] : "N/A");
+                let synopsis = movie.synopsis || movie.description || movie.overview || "A captivating feature film handpicked from your live watchlist.";
+                
+                let posterUrl = movie.poster || movie.poster_path || "";
+                if (posterUrl && posterUrl.startsWith('/')) {
+                    posterUrl = `https://image.tmdb.org/t/p/w500${posterUrl}`;
+                }
+                if (!posterUrl) {
+                    posterUrl = "https://via.placeholder.com/200x300?text=No+Poster";
+                }
+
+                let rating = movie.rating || (movie.score ? `Score: ${movie.score}%` : (movie.imdb_rating ? `IMDb: ${movie.imdb_rating}` : ""));
 
                 grid.innerHTML += `
                     <div class="movie-card">
@@ -245,6 +293,55 @@
                     </div>
                 `;
             });
+        }
+
+        function shareCurrentList() {
+            if (currentSelection.length === 0) return;
+
+            // Pre-process and format poster paths into full absolute URLs before packaging
+            const compactList = currentSelection.map(m => {
+                let pUrl = m.poster || m.poster_path || "";
+                if (pUrl && pUrl.startsWith('/')) {
+                    pUrl = `https://image.tmdb.org/t/p/w500${pUrl}`;
+                }
+                return {
+                    title: m.title,
+                    year: m.release_year || (m.release_date ? m.release_date.split("-")[0] : m.year || ""),
+                    poster: pUrl,
+                    rating: m.score ? `Score: ${m.score}%` : (m.imdb_rating ? `IMDb: ${m.imdb_rating}` : ""),
+                    synopsis: m.description || m.overview || ""
+                };
+            });
+
+            const encodedData = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(compactList)))));
+            const shareUrl = `${window.location.origin}${window.location.pathname}?list=${encodedData}`;
+
+            navigator.clipboard.writeText(shareUrl).then(() => {
+                const toast = document.getElementById("share-toast");
+                toast.style.display = "block";
+                setTimeout(() => { toast.style.display = "none"; }, 3000);
+            }).catch(err => {
+                prompt("Copy this URL to share your static movie list:", shareUrl);
+            });
+        }
+
+        function renderSharedList(encodedData) {
+            try {
+                const jsonString = decodeURIComponent(escape(atob(decodeURIComponent(encodedData))));
+                const sharedMovies = JSON.parse(jsonString);
+
+                document.getElementById("settings-box").style.display = "none";
+                document.getElementById("marquee-header").innerHTML = "MOVIE NIGHT<br>SPECIAL SELECTION";
+                
+                renderMovies(sharedMovies);
+
+                const controlsArea = document.getElementById("controls-area");
+                controlsArea.innerHTML = `
+                    <button onclick="window.location.href=window.location.pathname">🎬 Create Your Own Movie Night Picker</button>
+                `;
+            } catch (e) {
+                document.getElementById("movie-list").innerHTML = "<p style='color: #ff6b6b;'>Invalid or corrupted share link.</p>";
+            }
         }
     </script>
 </body>
