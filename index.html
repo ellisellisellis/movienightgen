@@ -298,7 +298,6 @@
         function shareCurrentList() {
             if (currentSelection.length === 0) return;
 
-            // Pre-process and format poster paths into full absolute URLs before packaging
             const compactList = currentSelection.map(m => {
                 let pUrl = m.poster || m.poster_path || "";
                 if (pUrl && pUrl.startsWith('/')) {
@@ -335,10 +334,8 @@
                 
                 renderMovies(sharedMovies);
 
-                const controlsArea = document.getElementById("controls-area");
-                controlsArea.innerHTML = `
-                    <button onclick="window.location.href=window.location.pathname">🎬 Create Your Own Movie Night Picker</button>
-                `;
+                // Clear controls area completely for the shared view
+                document.getElementById("controls-area").innerHTML = "";
             } catch (e) {
                 document.getElementById("movie-list").innerHTML = "<p style='color: #ff6b6b;'>Invalid or corrupted share link.</p>";
             }
