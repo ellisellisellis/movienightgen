@@ -190,7 +190,7 @@
             <button onclick="shareCurrentList()" id="share-btn" class="btn-secondary" style="display:none; margin-top: 10px;">🔗 Share Static List</button>
         </div>
 
-        <div id="share-toast" class="share-toast">Copied link to clipboard!</div>
+        <div id="share-toast" class="share-toast">Shortening link...</div>
     </div>
 
     <script>
@@ -313,15 +313,44 @@
             });
 
             const encodedData = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(compactList)))));
-            const shareUrl = `${window.location.origin}${window.location.pathname}?list=${encodedData}`;
+            const longUrl = `${window.location.origin}${window.location.pathname}?list=${encodedData}`;
 
-            navigator.clipboard.writeText(shareUrl).then(() => {
-                const toast = document.getElementById("share-toast");
-                toast.style.display = "block";
+            const toast = document.getElementById("share-toast");
+            toast.innerText = "Shortening link...";
+            toast.style.display = "block";
+
+            // Use free is.gd service to shorten link via JSONP
+            const script = document.createElement('script');
+            const callbackName = 'handleShortLink_' + Math.floor(Math.random() * 100000);
+            
+            window[callbackName] = function(response) {
+                let finalUrl = longUrl;
+                if (response && response.shorturl) {
+                    finalUrl = response.shorturl;
+                }
+
+                navigator.clipboard.writeText(finalUrl).then(() => {
+                    toast.innerText = "Short link copied to clipboard!";
+                    setTimeout(() => { toast.style.display = "none"; }, 3000);
+                }).catch(() => {
+                    prompt("Copy your short movie list link:", finalUrl);
+                    toast.style.display = "none";
+                });
+
+                document.body.removeChild(script);
+                delete window[callbackName];
+            };
+
+            script.src = `https://is.gd/create.php?format=json&callback=${callbackName}&url=${encodeURIComponent(longUrl)}`;
+            script.onerror = function() {
+                navigator.clipboard.writeText(longUrl);
+                toast.innerText = "Copied link to clipboard!";
                 setTimeout(() => { toast.style.display = "none"; }, 3000);
-            }).catch(err => {
-                prompt("Copy this URL to share your static movie list:", shareUrl);
-            });
+                document.body.removeChild(script);
+                delete window[callbackName];
+            };
+
+            document.body.appendChild(script);
         }
 
         function renderSharedList(encodedData) {
@@ -333,8 +362,6 @@
                 document.getElementById("marquee-header").innerHTML = "MOVIE NIGHT<br>SPECIAL SELECTION";
                 
                 renderMovies(sharedMovies);
-
-                // Clear controls area completely for the shared view
                 document.getElementById("controls-area").innerHTML = "";
             } catch (e) {
                 document.getElementById("movie-list").innerHTML = "<p style='color: #ff6b6b;'>Invalid or corrupted share link.</p>";
