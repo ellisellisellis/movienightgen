@@ -238,10 +238,32 @@
                 const data = await response.json();
                 let rawList = Array.isArray(data) ? data : (data.movies || data.results || data.items || Object.values(data).find(v => Array.isArray(v)) || []);
 
-                cachedWatchlist = rawList.filter(item => item.mediatype === 'movie' || item.type === 'movie' || !item.mediatype);
+                // Calculate date 90 days ago to ensure the movie has cleared cinemas and hit home streaming/VOD
+                const streamingBufferDate = new Date();
+                streamingBufferDate.setDate(streamingBufferDate.getDate() - 90);
+                const streamingCutoffStr = streamingBufferDate.toISOString().split('T')[0];
+                const currentYear = new Date().getFullYear();
+
+                cachedWatchlist = rawList.filter(item => {
+                    if (item.mediatype && item.mediatype !== 'movie' && item.type !== 'movie') return false;
+
+                    let releaseDate = item.release_date;
+                    let year = item.year || item.release_year;
+
+                    // If a specific release date is provided, ensure it was released at least 90 days ago
+                    if (releaseDate && releaseDate.length >= 10) {
+                        if (releaseDate > streamingCutoffStr) return false;
+                    } 
+                    // If only a year is provided, exclude current year or future years (to avoid brand new/rumored 2026 films)
+                    else if (year) {
+                        if (parseInt(year) >= currentYear) return false;
+                    }
+
+                    return true;
+                });
 
                 if (cachedWatchlist.length === 0) {
-                    container.innerHTML = "<p>No movies found in your watchlist.</p>";
+                    container.innerHTML = "<p>No streaming-ready movies found in your watchlist.</p>";
                     return;
                 }
 
@@ -282,12 +304,11 @@
             if (cachedWatchlist.length === 0) return;
 
             let container = document.getElementById("movie-list");
-            container.innerHTML = "<p>Selecting films and fetching artwork...</p>";
+            container.innerHTML = "<p>Selecting streaming-ready films...</p>";
 
             let shuffled = [...cachedWatchlist].sort(() => 0.5 - Math.random());
             let rawSelected = shuffled.slice(0, 3);
 
-            // Fetch full details (synopsis, posters, scores) for the 3 selected movies
             currentSelection = await Promise.all(rawSelected.map(item => fetchMovieDetails(item)));
 
             renderMovies(currentSelection);
@@ -308,7 +329,7 @@
                     posterUrl = `https://image.tmdb.org/t/p/w500${posterUrl}`;
                 }
                 if (!posterUrl) {
-                    posterUrl = "https://via.placeholder.com/200x300?text=No+Poster";
+                    posterUrl = "https://placehold.co/300x450/112233/ffdb58?text=No+Poster";
                 }
 
                 let rating = movie.rating || (movie.score ? `Score: ${movie.score}%` : (movie.imdb_rating ? `IMDb: ${movie.imdb_rating}` : ""));
@@ -317,7 +338,7 @@
                     <div class="movie-card">
                         <h3 class="movie-title">${index + 1}. ${movie.title} (${releaseYear})</h3>
                         <div class="poster-frame">
-                            <img src="${posterUrl}" alt="${movie.title} Poster" class="movie-poster" onerror="this.src='https://via.placeholder.com/200x300?text=Poster+Error'">
+                            <img src="${posterUrl}" alt="${movie.title} Poster" class="movie-poster" onerror="this.src='https://placehold.co/300x450/112233/ffdb58?text=Poster+Error'">
                         </div>
                         ${rating ? `<div class="meta-tags">${rating}</div>` : ''}
                         <div class="synopsis-box">
