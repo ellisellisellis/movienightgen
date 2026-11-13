@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Movie Night</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Limelight&family=Libre+Caslon+Text:ital,wght@0,400;0,700;1,400&display=swap">
+<style>
+:root{--velvet:#5a0f1a;--velvet-dk:#2b060c;--brass:#e8b84a;--brass-dk:#9c7326;--paper:#f3e6c4;--ink:#2a1a12}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;color:var(--paper);font-family:'Libre Caslon Text',Georgia,serif;
+ background:repeating-linear-gradient(90deg,var(--velvet) 0 34px,var(--velvet-dk) 34px 42px,var(--velvet) 42px 70px);
+ padding:14px 14px 40px}
+.wrap{max-width:560px;margin:0 auto}
+.marquee{background:var(--velvet-dk);border:4px solid var(--brass);border-radius:10px;padding:22px 12px 18px;text-align:center;
+ position:relative;box-shadow:0 0 0 3px var(--velvet-dk),0 12px 30px rgba(0,0,0,.6)}
+.marquee::before,.marquee::after{content:"";position:absolute;left:8px;right:8px;height:10px;
+ background:radial-gradient(circle,#fff3b0 0 3px,transparent 4px) 0 0/22px 10px repeat-x;animation:chase 1.2s steps(2) infinite}
+.marquee::before{top:5px}.marquee::after{bottom:5px;animation-delay:.6s}
+@keyframes chase{50%{opacity:.25}}
+h1{font-family:'Limelight',serif;font-weight:400;font-size:2.1rem;line-height:1.1;margin:0;color:var(--brass);text-shadow:0 0 14px rgba(232,184,74,.5)}
+.sub{margin:6px 0 0;font-style:italic;font-size:.9rem;color:var(--paper)}
+.panel{background:rgba(43,6,12,.85);border:1px solid var(--brass-dk);border-radius:8px;padding:14px;margin:18px 0}
+.panel p{margin:0 0 6px;font-size:.85rem}
+input,select,button{font:inherit;font-size:1rem;width:100%;padding:11px 12px;border-radius:6px;margin:4px 0}
+input,select{background:var(--paper);color:var(--ink);border:2px solid var(--brass-dk)}
+button{background:var(--brass);color:var(--ink);border:2px solid var(--brass-dk);font-weight:700;cursor:pointer}
+button:hover{background:#f3c968}
+button.alt{background:transparent;color:var(--brass);border-color:var(--brass)}
+button:disabled{opacity:.6;cursor:wait}
+:focus-visible{outline:3px solid #fff3b0;outline-offset:2px}
+.ticket{display:grid;grid-template-columns:118px 1fr;gap:14px;background:var(--paper);color:var(--ink);border-radius:8px;
+ padding:14px;margin:16px 0;position:relative;box-shadow:0 8px 18px rgba(0,0,0,.5);
+ -webkit-mask:radial-gradient(circle 9px at 0 50%,#0000 98%,#000) left/51% 100% no-repeat,radial-gradient(circle 9px at 100% 50%,#0000 98%,#000) right/51% 100% no-repeat;
+ mask:radial-gradient(circle 9px at 0 50%,#0000 98%,#000) left/51% 100% no-repeat,radial-gradient(circle 9px at 100% 50%,#0000 98%,#000) right/51% 100% no-repeat}
+.poster{width:118px;aspect-ratio:2/3;object-fit:cover;border:2px solid var(--ink);border-radius:3px;background:#c9b88e;display:flex;align-items:center;justify-content:center;text-align:center;font-size:.75rem;padding:6px}
+h2{font-family:'Limelight',serif;font-weight:400;font-size:1.15rem;line-height:1.2;margin:0 0 4px;color:var(--velvet)}
+.meta{font-size:.78rem;font-weight:700;color:var(--brass-dk);margin:0 0 6px}
+.syn{font-size:.8rem;line-height:1.5;margin:0 0 8px}
+.msg{text-align:center;font-style:italic;padding:14px}
+.err{color:#ffb4a8}
+.toast{text-align:center;color:var(--brass);min-height:1.4em;font-size:.85rem}
+@media(prefers-reduced-motion:reduce){.marquee::before,.marquee::after{animation:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+ <header class="marquee"><h1 id="title">Now Showing</h1><p class="sub" id="sub">Tonight's feature presentations</p></header>
+
+ <section class="panel" id="settings" hidden>
+  <p>MDBList API key</p><input type="password" id="mdbKey" autocomplete="off">
+  <p>TMDB API key or read token (free at themoviedb.org)</p><input type="password" id="tmdbKey" autocomplete="off">
+  <button id="saveBtn">Save and open the doors</button>
+ </section>
+
+ <main id="list" aria-live="polite"></main>
+
+ <div id="controls" hidden>
+  <button id="pickBtn">Pick 3 new films</button>
+  <button id="shareBtn" class="alt">Copy shareable link</button>
+  <button id="setBtn" class="alt">Settings</button>
+ </div>
+ <div class="toast" id="toast" role="status"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const store = {
+  get: k => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} }
+};
+const detailCache = new Map();
+let watchlist = [], selection = [];
+
+window.onload = () => {
+  const shared = new URLSearchParams(location.search).get("list");
+  if (shared) return showShared(shared);
+  $("mdbKey").value = store.get("mdb_key") || "";
+  $("tmdbKey").value = store.get("tmdb_key") || "";
+  if ($("mdbKey").value && $("tmdbKey").value) start(); else $("settings").hidden = false;
+};
+
+$("saveBtn").onclick = () => {
+  const m = $("mdbKey").value.trim(), t = $("tmdbKey").value.trim();
+  if (!m || !t) return say("Both keys are needed.", true);
+  store.set("mdb_key", m); store.set("tmdb_key", t);
+  detailCache.clear();
+  start();
+};
+$("setBtn").onclick = () => { $("settings").hidden = !$("settings").hidden; };
+$("pickBtn").onclick = pick;
+$("shareBtn").onclick = share;
+
+function say(text, isErr) {
+  $("list").innerHTML = `<p class="msg ${isErr ? "err" : ""}">${esc(text)}</p>`;
+}
+
+async function start() {
+  $("settings").hidden = true;
+  say("Checking your watchlist…");
+  try {
+    const r = await fetch(`https://api.mdblist.com/watchlist/items?apikey=${encodeURIComponent($("mdbKey").value)}&limit=1000`);
+    if (!r.ok) throw new Error("Couldn't load your MDBList watchlist. Check the API key.");
+    const data = await r.json();
+    const raw = Array.isArray(data) ? data : (data.movies || data.results || data.items || Object.values(data).find(Array.isArray) || []);
+    watchlist = raw.filter(i => (i.mediatype || i.type || "movie") === "movie")
+      .map(i => ({ tmdb: i.ids?.tmdb ?? i.tmdb_id ?? i.id, title: i.title, year: i.year || i.release_year }))
+      .filter(i => i.tmdb);
+    if (!watchlist.length) return say("No movies found on your watchlist.");
+    $("controls").hidden = false;
+    pick();
+  } catch (e) {
+    say(e.message, true); $("settings").hidden = false;
+  }
+}
+
+// One TMDB call per film gives runtime, synopsis, poster and where it's streaming.
+async function details(id) {
+  if (detailCache.has(id)) return detailCache.get(id);
+  const key = $("tmdbKey").value.trim();
+  const long = key.length > 40; // read-access tokens are long; v3 keys are 32 chars
+  const url = `https://api.themoviedb.org/3/movie/${id}?append_to_response=watch/providers` + (long ? "" : `&api_key=${key}`);
+  const p = fetch(url, long ? { headers: { Authorization: `Bearer ${key}` } } : {})
+    .then(r => { if (!r.ok) throw new Error("TMDB lookup failed. Check your TMDB key."); return r.json(); })
+    .then(d => {
+      // Collect providers from every country; most-widely-available first
+      const count = {};
+      for (const w of Object.values(d["watch/providers"]?.results || {}))
+        for (const x of [...(w.flatrate || []), ...(w.free || []), ...(w.ads || [])])
+          count[x.provider_name] = (count[x.provider_name] || 0) + 1;
+      const names = Object.keys(count).sort((a, b) => count[b] - count[a]);
+      return {
+        title: d.title, year: (d.release_date || "").slice(0, 4), runtime: d.runtime,
+        synopsis: d.overview, poster: d.poster_path ? `https://image.tmdb.org/t/p/w342${d.poster_path}` : "",
+        rating: d.vote_average ? `★ ${d.vote_average.toFixed(1)}` : "", streams: names
+      };
+    });
+  detailCache.set(id, p);
+  p.catch(() => detailCache.delete(id));
+  return p;
+}
+
+function shuffle(a) {
+  a = [...a];
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
+async function pick() {
+  const btn = $("pickBtn"); btn.disabled = true;
+  say("Threading the projector…");
+  try {
+    const queue = shuffle(watchlist), found = [];
+    let checked = 0;
+    while (found.length < 3 && queue.length) {
+      const batch = queue.splice(0, 3 - found.length);
+      checked += batch.length;
+      const res = await Promise.all(batch.map(m => details(m.tmdb)));
+      found.push(...res.filter(d => d.streams.length));
+    }
+    selection = found;
+    if (!found.length) return say("None of your watchlist is streaming anywhere right now.");
+    render(found);
+    $("toast").textContent = found.length < 3 ? `Only ${found.length} streamable film${found.length > 1 ? "s" : ""} on your list right now.` : "";
+  } catch (e) { say(e.message, true); }
+  finally { btn.disabled = false; }
+}
+
+function render(films) {
+  $("list").innerHTML = films.map(f => {
+    const runtime = f.runtime ? `${Math.floor(f.runtime / 60)}h ${String(f.runtime % 60).padStart(2, "0")}m` : "";
+    const meta = [f.year, runtime, f.rating].filter(Boolean).join("  •  ");
+    const img = f.poster ? `<img class="poster" src="${esc(f.poster)}" alt="${esc(f.title)} poster" loading="lazy">`
+                         : `<div class="poster">${esc(f.title)}</div>`;
+    return `<article class="ticket">${img}<div>
+      <h2>${esc(f.title)}</h2><p class="meta">${esc(meta)}</p>
+      <p class="syn">${esc(f.synopsis || "Synopsis unavailable.")}</p>
+    </div></article>`;
+  }).join("");
+}
+
+async function share() {
+  if (!selection.length) return;
+  const compact = selection.map(f => ({ ...f, synopsis: (f.synopsis || "").slice(0, 240) }));
+  const data = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(compact)))));
+  const long = `${location.origin}${location.pathname}?list=${data}`;
+  let out = long;
+  try {
+    const r = await fetch(`https://is.gd/create.php?format=json&url=${encodeURIComponent(long)}`);
+    out = (await r.json()).shorturl || long;
+  } catch {}
+  try { await navigator.clipboard.writeText(out); $("toast").textContent = "Link copied!"; }
+  catch { prompt("Copy this link:", out); }
+}
+
+function showShared(data) {
+  $("title").textContent = "Special Selection";
+  $("sub").textContent = "Tonight's chosen features";
+  try {
+    const films = JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(data)))));
+    if (!Array.isArray(films)) throw 0;
+    render(films);
+  } catch { say("This link is invalid or damaged.", true); }
+}
+</script>
+</body>
+</html>
