@@ -39,7 +39,13 @@ button:disabled{opacity:.6;cursor:wait}
 .trailer:hover .play{background:var(--velvet)}
 h2{font-family:'Limelight',serif;font-weight:400;font-size:1.15rem;line-height:1.2;margin:0 0 4px;color:var(--velvet)}
 .meta{font-size:.78rem;font-weight:700;color:var(--brass-dk);margin:0 0 6px}
-.syn{font-size:.8rem;line-height:1.5;margin:0 0 8px}
+.ticket{height:206px;overflow:hidden}
+.ticket.open{height:auto}
+.ticket h2,.syn{display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}
+.ticket h2{-webkit-line-clamp:2}
+.syn{font-size:.8rem;line-height:1.5;margin:0 0 4px;-webkit-line-clamp:4}
+.ticket.open .syn{-webkit-line-clamp:unset;display:block}
+button.more{width:auto;margin:0;padding:2px 0;background:none;border:0;color:var(--velvet);font-size:.78rem;text-decoration:underline}
 .msg{text-align:center;font-style:italic;padding:14px}
 .err{color:#ffb4a8}
 .toast{text-align:center;color:var(--brass);min-height:1.4em;font-size:.85rem}
@@ -187,9 +193,26 @@ function render(films) {
     return `<article class="ticket">${poster}<div>
       <h2>${esc(f.title)}</h2><p class="meta">${esc(meta)}</p>
       <p class="syn">${esc(f.synopsis || "Synopsis unavailable.")}</p>
+      <button class="more" type="button" hidden>Read more</button>
     </div></article>`;
   }).join("");
+  fitStubs();
+  document.fonts?.ready.then(fitStubs);
 }
+
+// Only offer "Read more" where the synopsis is actually cut off
+function fitStubs() {
+  document.querySelectorAll(".ticket:not(.open)").forEach(t => {
+    const syn = t.querySelector(".syn");
+    t.querySelector(".more").hidden = syn.scrollHeight <= syn.clientHeight + 1;
+  });
+}
+$("list").addEventListener("click", e => {
+  const b = e.target.closest(".more");
+  if (!b) return;
+  const t = b.closest(".ticket");
+  b.textContent = t.classList.toggle("open") ? "Show less" : "Read more";
+});
 
 async function share() {
   if (!selection.length) return;
