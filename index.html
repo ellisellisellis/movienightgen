@@ -34,6 +34,9 @@ button:disabled{opacity:.6;cursor:wait}
  -webkit-mask:radial-gradient(circle 9px at 0 50%,#0000 98%,#000) left/51% 100% no-repeat,radial-gradient(circle 9px at 100% 50%,#0000 98%,#000) right/51% 100% no-repeat;
  mask:radial-gradient(circle 9px at 0 50%,#0000 98%,#000) left/51% 100% no-repeat,radial-gradient(circle 9px at 100% 50%,#0000 98%,#000) right/51% 100% no-repeat}
 .poster{width:118px;aspect-ratio:2/3;object-fit:cover;border:2px solid var(--ink);border-radius:3px;background:#c9b88e;display:flex;align-items:center;justify-content:center;text-align:center;font-size:.75rem;padding:6px}
+.trailer{position:relative;display:block;align-self:start;text-decoration:none}
+.play{position:absolute;left:6px;right:6px;bottom:6px;background:rgba(43,6,12,.88);color:var(--brass);font-size:.72rem;font-weight:700;text-align:center;padding:4px 0;border-radius:3px}
+.trailer:hover .play{background:var(--velvet)}
 h2{font-family:'Limelight',serif;font-weight:400;font-size:1.15rem;line-height:1.2;margin:0 0 4px;color:var(--velvet)}
 .meta{font-size:.78rem;font-weight:700;color:var(--brass-dk);margin:0 0 6px}
 .syn{font-size:.8rem;line-height:1.5;margin:0 0 8px}
@@ -123,7 +126,7 @@ async function details(id) {
   if (detailCache.has(id)) return detailCache.get(id);
   const key = $("tmdbKey").value.trim();
   const long = key.length > 40; // read-access tokens are long; v3 keys are 32 chars
-  const url = `https://api.themoviedb.org/3/movie/${id}?append_to_response=watch/providers` + (long ? "" : `&api_key=${key}`);
+  const url = `https://api.themoviedb.org/3/movie/${id}?append_to_response=watch/providers,videos` + (long ? "" : `&api_key=${key}`);
   const p = fetch(url, long ? { headers: { Authorization: `Bearer ${key}` } } : {})
     .then(r => { if (!r.ok) throw new Error("TMDB lookup failed. Check your TMDB key."); return r.json(); })
     .then(d => {
@@ -133,8 +136,10 @@ async function details(id) {
         for (const x of [...(w.flatrate || []), ...(w.free || []), ...(w.ads || [])])
           count[x.provider_name] = (count[x.provider_name] || 0) + 1;
       const names = Object.keys(count).sort((a, b) => count[b] - count[a]);
+      const vids = (d.videos?.results || []).filter(v => v.site === "YouTube" && v.type === "Trailer");
+      const trailer = (vids.find(v => v.official) || vids[0] || {}).key || "";
       return {
-        title: d.title, year: (d.release_date || "").slice(0, 4), runtime: d.runtime,
+        trailer, title: d.title, year: (d.release_date || "").slice(0, 4), runtime: d.runtime,
         synopsis: d.overview, poster: d.poster_path ? `https://image.tmdb.org/t/p/w342${d.poster_path}` : "",
         rating: d.vote_average ? `★ ${d.vote_average.toFixed(1)}` : "", streams: names
       };
@@ -174,9 +179,12 @@ function render(films) {
   $("list").innerHTML = films.map(f => {
     const runtime = f.runtime ? `${Math.floor(f.runtime / 60)}h ${String(f.runtime % 60).padStart(2, "0")}m` : "";
     const meta = [f.year, runtime, f.rating].filter(Boolean).join("  •  ");
-    const img = f.poster ? `<img class="poster" src="${esc(f.poster)}" alt="${esc(f.title)} poster" loading="lazy">`
+    const img = f.poster ? `<img class="poster" src="${esc(f.poster)}" alt="" loading="lazy">`
                          : `<div class="poster">${esc(f.title)}</div>`;
-    return `<article class="ticket">${img}<div>
+    const href = f.trailer ? `https://www.youtube.com/watch?v=${encodeURIComponent(f.trailer)}`
+      : `https://www.youtube.com/results?search_query=${encodeURIComponent(`${f.title} ${f.year || ""} trailer`)}`;
+    const poster = `<a class="trailer" href="${href}" target="_blank" rel="noopener" aria-label="Watch the trailer for ${esc(f.title)}">${img}<span class="play">▶ Trailer</span></a>`;
+    return `<article class="ticket">${poster}<div>
       <h2>${esc(f.title)}</h2><p class="meta">${esc(meta)}</p>
       <p class="syn">${esc(f.synopsis || "Synopsis unavailable.")}</p>
     </div></article>`;
